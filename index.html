@@ -1,0 +1,81 @@
+<html>
+<head>
+	<script src="js/rawinflate.js"></script>
+	<style>
+		#byte_content {
+			margin: 5px 0;
+			max-height: 100px;
+			overflow-y: auto;
+			overflow-x: hidden;
+		}
+		#byte_range { margin-top: 5px; }
+	</style>
+
+</head>
+<body>
+	<h1>Javascript Zip Experiment</h1>
+
+	<h2>Reading file</h2>
+	<p>Drag bgzip file and tabix file to text box</p>
+	<textarea id="dump" rows=15 cols=50></textarea><br/>
+	<button id="peek">peek</button>
+	&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+	<input type="text" id="region" value="11:113850000:114150000" size="40"/>
+	<button id="findRegion">find</button>
+</body>
+	<script>
+
+  var worker = new Worker('js/bgzipworker.js');
+	var filesSet = false;
+
+	worker.onmessage = function(e) {
+		if (e.data.msg && e.data.msg == "filesset") {
+				filesSet = true;	
+		}
+		if(e.data.box) {
+			document.getElementById('dump').value = e.data.box;
+		}
+		console.log(e.data);
+	}
+
+  function handleFileSelect(evt) {
+	console.log("dropped");
+		evt.stopPropagation();
+		evt.preventDefault();
+
+		var files = evt.dataTransfer.files;
+		console.log(files);
+
+		worker.postMessage({cmd:"setfiles", files:files});
+  }
+
+	function handleDragOver(evt) {
+		evt.stopPropagation();
+		evt.preventDefault();
+		evt.dataTransfer.dropEffect = 'copy';
+	}
+
+	var dropZone = document.getElementById('dump');
+	dropZone.addEventListener('dragover', handleDragOver, false);
+	dropZone.addEventListener('drop', handleFileSelect, false);
+
+	document.getElementById('findRegion').addEventListener('click', function(evt) {
+		if (!filesSet) {
+				alert("files not set");
+		} else {
+			var rangeBox = document.getElementById('region');
+			worker.postMessage({cmd:"getrange", range:rangeBox.value});
+		}
+
+	}, false);
+	document.getElementById('peek').addEventListener('click', function(evt) {
+		if (!filesSet) {
+				alert("files not set");
+		} else {
+			worker.postMessage({cmd:"peek"});
+		}
+
+	}, false);
+
+</script>
+</html>
