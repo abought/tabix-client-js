@@ -17,7 +17,7 @@ self.addEventListener('message', function (e) {
     } else if (cmd === "peek") {
         getDataPeek(data.peek);
     } else {
-        postMessage("hello");
+        postMessage({error: "Unrecognized request"});
     }
 }, false);
 
@@ -53,7 +53,7 @@ function getDataPeek(n) {
     for (let i = 0; i < n; i++) {
         a += tdr.readColumns().join(",") + "\n";
     }
-    postMessage({box: a});
+    postMessage({msg: 'has_data', box: a});
 }
 
 function getDataRange(rawrange) {
@@ -64,8 +64,8 @@ function getDataRange(rawrange) {
     let offset = findTabixOffset(tdr, tbiheader, range[0], range[1]);
     tdr = null; //done with this
     //postMessage( tbiheader );
-    postMessage(offset);
-    postMessage(range);
+    // postMessage(offset);
+    // postMessage(range);
     let bgz = new BGZipFile(bgzipdatafile);
     tdr = getBGZipReader(bgz, offset.offset, offset.voffset);
     let comp = getRowRangeComparer(range, tbiheader);
@@ -81,15 +81,15 @@ function getDataRange(rawrange) {
             passed = true;
         }
     }
-    postMessage({box: matches.join("\n")});
+    postMessage({msg: 'has_data', box: matches.join("\n")});
 }
 
 function parseRange(rawrange) {
-    let cp = rawrange.replace(/\s/g, "").split(":");
-    if (cp.length === 1) {
-        return [cp[0]];
+    let chrom_pos = rawrange.replace(/\s/g, "").split(":");
+    if (chrom_pos.length === 1) {
+        return [chrom_pos[0]];
     }
-    let ss = cp[1].replace(/[^\d-+\xb1kmKMbB]/g, "").toLowerCase();
+    let ss = chrom_pos[1].replace(/[^\d-+\xb1kmKMbB]/g, "").toLowerCase();
     let re = /(\d+)([+-\xb1])(\d+)([km]?)b?/;
     let parts = re.exec(ss);
     if (parts) {
@@ -106,7 +106,7 @@ function parseRange(rawrange) {
             start = start - end;
             end = start + 2 * end;
         }
-        return [cp[0], start, end];
+        return [chrom_pos[0], start, end];
     } else {
         throw "Invalid range format"
     }
@@ -439,7 +439,7 @@ function findTabixOffset (dr, header, chr, pos) {
         throw "Region " + chr + " not found in tabix header";
     }
     let intindex = Math.floor(pos / 16384);
-    postMessage({pos: pos, intindex: intindex});
+    // postMessage({pos: pos, intindex: intindex});
     let bins, binno, chunks, intervals;
     for (let section = 0; section <= seqindex && dr.hasMore(); section++) {
         bins = dr.readInt32();
@@ -461,7 +461,7 @@ function findTabixOffset (dr, header, chr, pos) {
                 voffset = dr.readUint16();
                 offset = dr.readUint32();
                 highbits = dr.readUint16();
-                postMessage({offset: offset, voffset: voffset, skip: skip});
+                // postMessage({offset: offset, voffset: voffset, skip: skip});
             }
             while (voffset === 0 && offset === 0 && intindex < intervals) {
                 //at start of chr, these offsets are not set till first read is found

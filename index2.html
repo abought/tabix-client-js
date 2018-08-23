@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- Necessary includes for LocusZoom.js -->
+  <script src="https://cdn.jsdelivr.net/npm/locuszoom@0.8.0/dist/locuszoom.vendor.min.js"
+          integrity="sha384-XV3yQVSuWxH92vPmq4yJp9CQxbFoRQDgTLcsw56lToVwMUlguf8AA23PnmWirIpi" crossorigin="anonymous"
+          type="application/javascript"></script>
+  <script src="https://cdn.jsdelivr.net/npm/locuszoom@0.8.0/dist/locuszoom.app.min.js"
+          integrity="sha384-0u44dUbr/qBACdI3KFke8obseYwRwRPQifzO7WdOgFK9V7r7kxPx1X0EX8jLAcbu" crossorigin="anonymous"
+          type="application/javascript"></script>
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/locuszoom@0.8.0/dist/locuszoom.css" type="text/css"/>
+
+  <title>LocusZoom.js ~ Minimal Example</title>
+</head>
+
+<body>
+<textarea id="dump" style="height: 100px; border-style: dashed; border-width: thick;">
+  Drag two files (a gzipped file and its tabix index) here
+</textarea>
+<!--
+  This div is used by LocusZoom to draw the plot. In this example, the plot region is specified as a
+  special data-attribute. See other examples for alternative ways to specify the region using JavaScript.
+-->
+<div id="lz-plot" data-region="1:796375-832756"></div>
+
+<script type="application/javascript">
+    "use strict";
+
+    // First, tell the plot how to find each kind of data it will use. By default, it fetches a specific dataset
+    //   from a UMich API, using a set of data sources that obey a specific URL format and payload structure.
+    // If your API has different URL syntax, or needs to reformat data from the server before giving it to LZ.js,
+    //   you can write a custom datasource.
+    function createPlot(files_list) {
+        var apiBase = "https://portaldev.sph.umich.edu/api/v1/";
+        window.data_sources = new LocusZoom.DataSources()
+            .add("assoc", ["TabixAssociationLZ", { files: files_list,  params: {
+                // These config options are specific to a particular file; TODO make configurable
+                id_field: "variant", marker_col: 4, pvalue_col: 5, is_log_p: false, delimiter: ','
+            }}])  // Human-indexed column numbers
+            .add("ld", ["LDLZ", {url: apiBase + "pair/LD/"}])
+            .add("gene", ["GeneLZ", {url: apiBase + "annotation/genes/", params: {source: 2}}])
+            .add("recomb", ["RecombLZ", {url: apiBase + "annotation/recomb/results/", params: {source: 15}}])
+            .add("constraint", ["GeneConstraintLZ", {url: "http://exac.broadinstitute.org/api/constraint"}]);
+
+        // Second, specify what kind of information to display. This demo uses a pre-defined set of panels with common
+        //   display options.
+        var layout = LocusZoom.Layouts.get("plot", "standard_association");
+
+        // Last, draw the plot in the div created in the HTML above.
+        //   Using window.x ensures that a reference to the plot is available via the JS console for debugging
+        window.plot = LocusZoom.populate("#lz-plot", data_sources, layout);
+    }
+</script>
+
+
+<script>
+    LocusZoom.KnownDataSources.extend('AssociationLZ', 'TabixAssociationLZ', {
+        parseInit: function (init) {
+            this.params = init.params;
+
+            this.worker = new Worker('js/bgzipworker.js');
+            this.worker.postMessage({cmd: "setfiles", files: init.files});
+        },
+        getCacheKey: function (state, chain, fields) {
+            return `${state.chr}_${state.start}_${state.end}`;
+        },
+        fetchRequest: function (state, chain, fields) {
+            var timeout_delay_ms = (this.params.timeout || 10) * 1000;
+            var self = this;
+
+            return new Promise(function (resolve, reject) {
+                // Resolve when worker returns with data
+                var timeout_id = window.setTimeout(function () {
+                    reject({error: 'Worker is not responding'});
+                }, timeout_delay_ms);
+
+                self.worker.onmessage = function (event) {
+                    if (event.data.error) {
+                        reject(event.data.error);
+                    } else if (event.data.msg !== 'has_data') {
+                        // Ignore any misc chatter: only respond to data being sent
+                        return;
+                    }
+                    if (event.data.box) {
+                        resolve(event.data.box.split('\n'));
+                    } else {
+                        reject('No data was received');
+                    }
+                };
+                // self.worker.postMessage({cmd: 'peek'})
+                self.worker.postMessage({cmd: "getrange", range: `${state.chr}:${state.start}-${state.end}`});
+            });
+        },
+        normalizeResponse: function (data) {
+            // The web worker sends back reconstructed lines of the text file to be parsed
+            var self = this;
+            return data.map(function (row) {
+                // TODO: Handle ref alt in future. Not every file will have this information.
+                row = row.split(self.params.delimiter);
+                let variant = row[self.params.marker_col - 1];
+                let [chr, pos] = variant.split(':');
+                let pvalue_raw = +row[self.params.pvalue_col -1];
+                let log_pval = self.params.is_log_p ? pvalue_raw : -Math.log10(pvalue_raw);
+
+                return {
+                    chromosome: chr,
+                    position: pos,
+                    ref_allele: null,
+                    log_pvalue: log_pval,
+                    variant: variant
+                }
+            });
+        }
+    });
+</script>
+
+
+<script>
+    function handleFileSelect(evt) {
+        evt.stopPropagation();
+        evt.preventDefault();
+
+        var files = evt.dataTransfer.files;
+        createPlot(files);
+    }
+    function handleDragOver(evt) {
+        evt.stopPropagation();
+        evt.preventDefault();
+        evt.dataTransfer.dropEffect = 'copy';
+    }
+
+    var dropZone = document.getElementById('dump');
+    dropZone.addEventListener('drop', handleFileSelect, false);
+    dropZone.addEventListener('drop', handleFileSelect, false);
+</script>
+
+</body>
+</html>
